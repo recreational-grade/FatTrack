@@ -90,14 +90,14 @@ manage user profiles app-side rather than pushing them to the scale.
 ## 5. Architecture Overview
 
 ```
-┌─────────────────────────────────────────────┐
-│                   UI (Compose)                │
-│   Dashboard · History · Devices · Settings    │
+┌──────────────────────────────────────────────┐
+│                   UI (Compose)               │
+│   Dashboard · History · Devices · Settings   │
 └───────────────────┬──────────────────────────┘
                     │ (ViewModels / StateFlow)
-┌───────────────────▼──────────────────────────┐
-│                 Repositories                   │
-│   RingRepo · ScaleRepo · WeightRepo · HCRepo   │
+┌───────────────────▼───────────────────────────┐
+│                 Repositories                  │
+│   RingRepo · ScaleRepo · WeightRepo · HCRepo  │
 └──────┬──────────────┬───────────────┬─────────┘
        │              │               │
 ┌──────▼─────┐ ┌──────▼──────┐ ┌──────▼────────┐
