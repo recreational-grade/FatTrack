@@ -64,7 +64,7 @@ manage user profiles app-side rather than pushing them to the scale.
 | UI | Jetpack Compose | Modern, less boilerplate |
 | Architecture | MVVM + Repository pattern | Clean separation of BLE / DB / UI |
 | Async | Coroutines + Flow | BLE notifications map well to Flow |
-| BLE | Nordic Android BLE Library (or Kable) | Higher-level than raw Android BLE API |
+| BLE | Nordic Android BLE Library | chosen for peripheral robustness and queued GATT ops. |
 | Local DB | Room (SQLite) | Mirror schemas from reference projects |
 | Health sync | Health Connect SDK | `androidx.health.connect:connect-client` |
 | DI | Hilt | |
