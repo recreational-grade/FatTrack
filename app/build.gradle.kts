@@ -90,5 +90,5 @@ dependencies {
     implementation(libs.accompanist.permissions)
 
     // Charts
-    implementation(libs.vico.compose.m3)
+    implementation(libs.vico.compose.m3)    
 }
