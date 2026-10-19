@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">FatTrack</string>
+    <style name="Theme.FatTrack" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
