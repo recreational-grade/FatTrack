@@ -22,7 +22,7 @@ object DbModule {
         Room.databaseBuilder(context, AppDatabase::class.java, "fattrack.db")
             // Pre-alpha only: wipes data on schema change. Replace with real
             // migrations before any real user data exists.
-            .fallbackToDestructiveMigration(dropAllTables = true)
+            .fallbackToDestructiveMigration()
             .build()
 
     @Provides fun provideUserProfileDao(db: AppDatabase): UserProfileDao = db.userProfileDao()

@@ -1,8 +1,10 @@
 package com.recreationalgrade.fattrack.ui.scan
 
 import android.bluetooth.BluetoothAdapter
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +27,7 @@ import com.recreationalgrade.fattrack.data.ble.ScannedDevice
 @Composable
 fun ScanScreen(
     modifier: Modifier = Modifier,
+    onDeviceSelected: (ScannedDevice) -> Unit = {},
     viewModel: ScanViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -44,7 +47,7 @@ fun ScanScreen(
         if (!state.bluetoothEnabled) {
             Text("Bluetooth is off.")
             Button(onClick = {
-                enableBtLauncher.launch(android.content.Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             }) { Text("Turn on Bluetooth") }
             return@Column
         }
@@ -56,4 +59,36 @@ fun ScanScreen(
 
         state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error) }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(state.devices, key = { it.address }) { device ->
+                DeviceRow(
+                    device = device,
+                    onClick = {
+                        viewModel.onDeviceClick(device)
+                        onDeviceSelected(device)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeviceRow(device: ScannedDevice, onClick: () -> Unit) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = device.name ?: "(unnamed device)",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "${device.address} · ${device.rssi} dBm",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}

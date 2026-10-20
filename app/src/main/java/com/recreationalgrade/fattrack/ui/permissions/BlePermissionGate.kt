@@ -17,6 +17,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.PermissionState
+import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.accompanist.permissions.shouldShowRationale
 
@@ -44,7 +46,7 @@ fun BlePermissionGate(
     // True while the OS will still show its own dialog; false once the user
     // has permanently denied (then we must route them to app settings).
     val canRequestInApp = permissionsState.permissions.any { it.status.shouldShowRationale } ||
-        permissionsState.permissions.all { !it.status.isDeniedPermanently() }
+        permissionsState.permissions.any { !it.isDeniedPermanently() }
 
     Column(
         modifier = modifier
@@ -86,5 +88,5 @@ fun BlePermissionGate(
  * says not to show a rationale — i.e. the user picked "don't ask again".
  */
 @OptIn(ExperimentalPermissionsApi::class)
-private fun com.google.accompanist.permissions.PermissionState.isDeniedPermanently(): Boolean =
+private fun PermissionState.isDeniedPermanently(): Boolean =
     !status.isGranted && !status.shouldShowRationale
