@@ -1,6 +1,6 @@
 # Project Plan: Open Health Ring & Body Composition App
 
-**Working title:** _(TBD — e.g. "OpenRing", "VitalSync")_
+**Working title:** FatTrack
 **Platform:** Android (Kotlin)
 **License:** GPL (open-source) — enables direct reuse of Gadgetbridge & openScale code
 **Distribution:** GitHub Releases (Obtainium + manual sideload); no app stores
