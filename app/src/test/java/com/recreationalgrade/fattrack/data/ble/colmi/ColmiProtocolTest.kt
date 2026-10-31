@@ -111,4 +111,35 @@ class ColmiProtocolTest {
         val badChecksum = ColmiRequests.battery().also { it[15] = 0x00 }
         assertNull(ColmiParser.parse(badChecksum))
     }
+
+        // --- Captures from a real Colmi R10 (fw RT03CR_1.00.02_260319), 2026-10-31 ---
+
+    @Test fun `R10 set time request matches capture`() {
+        assertEquals(
+            "01 26 10 31 20 25 33 01 00 00 00 00 00 00 00 E1",
+            ColmiRequests.setTime(Instant.parse("2026-10-31T20:25:33Z")).toHex(),
+        )
+    }
+
+    @Test fun `R10 set time ack parses`() {
+        assertEquals(
+            ColmiResponse.TimeSet,
+            ColmiParser.parse(hex("01 01 00 00 02 00 00 00 00 01 00 20 00 00 30 55")),
+        )
+    }
+
+    @Test fun `R10 battery response parses`() {
+        assertEquals(
+            ColmiResponse.Battery(level = 14, charging = false),
+            ColmiParser.parse(hex("03 0E 00 00 00 00 00 00 00 00 00 00 00 00 00 11")),
+        )
+    }
+
+    @Test fun `R10 unsolicited 0x2F packet is valid and kept as unknown`() {
+        // 0x2F + 0xF4 = 0x123 -> 0x23. Modulo 255 would give 0x24, so this
+        // also confirms the checksum rule on real hardware.
+        val response = ColmiParser.parse(hex("2F F4 00 00 00 00 00 00 00 00 00 00 00 00 00 23"))
+        assertEquals(0x2F, (response as ColmiResponse.Unknown).command)
+    }
+
 }
