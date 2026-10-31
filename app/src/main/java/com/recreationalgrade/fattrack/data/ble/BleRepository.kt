@@ -14,6 +14,9 @@ interface BleRepository {
     /**
      * Cold flow: scanning starts on collection and stops on cancellation.
      * Emits the accumulated, de-duplicated device list on each discovery.
+     * Never completes on its own; callers are responsible for time-boxing it.
+     * Fails with [BleScanException] if the platform rejects the scan.
      */
     fun scanForDevices(): Flow<List<ScannedDevice>>
+
 }
