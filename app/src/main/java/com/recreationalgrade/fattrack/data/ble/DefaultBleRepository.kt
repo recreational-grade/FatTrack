@@ -9,6 +9,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import javax.inject.Inject
+import com.recreationalgrade.fattrack.data.ble.match.DeviceRecognizer
 
 /**
  * Platform-scanner implementation of [BleRepository].
@@ -35,13 +36,18 @@ class DefaultBleRepository @Inject constructor(
 
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val address = result.device.address
+                // Prefer the advertised name (no CONNECT permission needed). Keep
+                // the previous name if this result arrived without one.
+                val name = result.scanRecord?.deviceName?.cleanDeviceName()
+                    ?: found[address]?.name
                 val device = ScannedDevice(
-                    address = result.device.address,
-                    // Prefer the advertised name (no CONNECT permission needed).
-                    name = result.scanRecord?.deviceName,
+                    address = address,
+                    name = name,
                     rssi = result.rssi,
+                    match = DeviceRecognizer.recognize(name),
                 )
-                found[device.address] = device
+                found[address] = device
                 trySend(found.values.toList())
             }
 

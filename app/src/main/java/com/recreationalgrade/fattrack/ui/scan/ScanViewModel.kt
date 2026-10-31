@@ -32,7 +32,12 @@ class ScanViewModel @Inject constructor(
         val error: String? = null,
         /** True when the last scan ended because [SCAN_WINDOW] elapsed. */
         val scanTimedOut: Boolean = false,
-    )
+        val showSupportedOnly: Boolean = false,
+    ) {
+        val recognizedDevices: List<ScannedDevice> get() = devices.filter { it.match != null }
+        val otherDevices: List<ScannedDevice> get() = devices.filter { it.match == null }
+    }
+
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -94,6 +99,9 @@ class ScanViewModel @Inject constructor(
         scanJob = null
         _uiState.update { it.copy(isScanning = false) }
     }
+    
+    fun setShowSupportedOnly(enabled: Boolean) =
+        _uiState.update { it.copy(showSupportedOnly = enabled) }
 
     /** Pairing/connection stub — real GATT connect (Nordic) lands in Phase 1. */
     fun onDeviceClick(device: ScannedDevice) {

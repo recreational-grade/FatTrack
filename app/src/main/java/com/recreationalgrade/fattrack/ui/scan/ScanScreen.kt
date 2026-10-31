@@ -29,6 +29,11 @@ import android.content.ContextWrapper
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Switch
+import androidx.compose.ui.Alignment
+import com.recreationalgrade.fattrack.data.ble.match.SupportLevel
+
 
 
 @Composable
@@ -57,7 +62,21 @@ fun ScanScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Devices", style = MaterialTheme.typography.headlineSmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Devices", style = MaterialTheme.typography.headlineSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Supported only", style = MaterialTheme.typography.bodyMedium)
+                Switch(
+                    checked = state.showSupportedOnly,
+                    onCheckedChange = viewModel::setShowSupportedOnly,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
 
         if (!state.bluetoothEnabled) {
             Text("Bluetooth is off.")
@@ -85,15 +104,35 @@ fun ScanScreen(
             )
         }
 
+        val recognized = state.recognizedDevices
+        val others = state.otherDevices
+        val select: (ScannedDevice) -> Unit = { device ->
+            viewModel.onDeviceClick(device)
+            onDeviceSelected(device)
+        }
+
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.devices, key = { it.address }) { device ->
-                DeviceRow(
-                    device = device,
-                    onClick = {
-                        viewModel.onDeviceClick(device)
-                        onDeviceSelected(device)
-                    },
-                )
+            if (recognized.isNotEmpty()) {
+                item(key = "header:supported") { SectionHeader("Supported devices") }
+                items(recognized, key = { it.address }) { device ->
+                    DeviceRow(device = device, onClick = { select(device) })
+                }
+            }
+            if (others.isNotEmpty()) {
+                if (state.showSupportedOnly) {
+                    item(key = "hidden") {
+                        val noun = if (others.size == 1) "device" else "devices"
+                        Text(
+                            text = "${others.size} other $noun hidden",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                } else {
+                    item(key = "header:other") { SectionHeader("Other devices") }
+                    items(others, key = { it.address }) { device ->
+                        DeviceRow(device = device, onClick = { select(device) })
+                    }
+                }
             }
         }
     }
@@ -107,17 +146,40 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 
 
 @Composable
+private fun SectionHeader(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+}
+
+@Composable
 private fun DeviceRow(device: ScannedDevice, onClick: () -> Unit) {
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .clickable(onClick = onClick),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = device.name ?: "(unnamed device)",
                 style = MaterialTheme.typography.titleMedium,
             )
+            device.match?.let { match ->
+                Text(
+                    text = match.model,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                if (match.support == SupportLevel.UNTESTED) {
+                    Text(
+                        text = "Untested model. Some features may not work.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
             Text(
                 text = "${device.address} · ${device.rssi} dBm",
                 style = MaterialTheme.typography.bodySmall,
@@ -125,3 +187,4 @@ private fun DeviceRow(device: ScannedDevice, onClick: () -> Unit) {
         }
     }
 }
+
