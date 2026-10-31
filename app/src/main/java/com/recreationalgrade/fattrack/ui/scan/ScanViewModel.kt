@@ -19,10 +19,14 @@ import javax.inject.Inject
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
+import com.recreationalgrade.fattrack.data.ble.match.DeviceFamily
+import com.recreationalgrade.fattrack.data.ring.RingRepository
+
 
 @HiltViewModel
 class ScanViewModel @Inject constructor(
     private val bleRepository: BleRepository,
+    private val ringRepository: RingRepository,
 ) : ViewModel() {
 
     data class UiState(
@@ -103,11 +107,19 @@ class ScanViewModel @Inject constructor(
     fun setShowSupportedOnly(enabled: Boolean) =
         _uiState.update { it.copy(showSupportedOnly = enabled) }
 
-    /** Pairing/connection stub — real GATT connect (Nordic) lands in Phase 1. */
-    fun onDeviceClick(device: ScannedDevice) {
-        stopScan()
-        // TODO(Phase 1): hand [device.address] to a connect() on the repository.
-    }
+    /** Returns true if the UI should navigate to the Dashboard. */
+    fun onDeviceClick(device: ScannedDevice): Boolean =
+        when (device.match?.family) {
+            DeviceFamily.COLMI_RING -> {
+                stopScan()
+                ringRepository.selectRing(device)
+                true
+            }
+            null -> {
+                _uiState.update { it.copy(error = "FatTrack doesn't support this device yet.") }
+                false
+            }
+        }
 
     override fun onCleared() {
         super.onCleared()

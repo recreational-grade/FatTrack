@@ -107,8 +107,7 @@ fun ScanScreen(
         val recognized = state.recognizedDevices
         val others = state.otherDevices
         val select: (ScannedDevice) -> Unit = { device ->
-            viewModel.onDeviceClick(device)
-            onDeviceSelected(device)
+            if (viewModel.onDeviceClick(device)) onDeviceSelected(device)
         }
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
