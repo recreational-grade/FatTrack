@@ -11,23 +11,22 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.PermissionState
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.accompanist.permissions.shouldShowRationale
 
-/**
- * Wraps [content], showing it only once all BLE permissions are granted.
- * Otherwise renders a rationale + request UI, with a Settings fallback for
- * the "don't ask again" case.
- */
-@OptIn(ExperimentalPermissionsApi::class)
+/** Shows [content] once all BLE permissions are granted. */
 @Composable
 fun BlePermissionGate(
     modifier: Modifier = Modifier,
@@ -35,18 +34,81 @@ fun BlePermissionGate(
         "your scale and ring. Your data stays on this device.",
     content: @Composable () -> Unit,
 ) {
+    PermissionGate(
+        permissions = BlePermissions.required,
+        rationale = rationale,
+        modifier = modifier,
+        grantLabel = "Grant Bluetooth access",
+        deniedMessage = "Bluetooth permission was denied. Enable it in system settings to continue.",
+        content = content,
+    )
+}
+
+/**
+ * Shows [content] only once every permission in [permissions] is granted.
+ * Otherwise shows [rationale] and a button to request the permissions. If a
+ * permission looks permanently denied, a Settings button becomes the main
+ * action, but the request button stays available in case that guess is wrong.
+ */
+@OptIn(ExperimentalPermissionsApi::class)
+@Composable
+fun PermissionGate(
+    permissions: List<String>,
+    rationale: String,
+    modifier: Modifier = Modifier,
+    grantLabel: String = "Grant access",
+    deniedMessage: String = "Permission was denied. Enable it in system settings to continue.",
+    content: @Composable () -> Unit,
+) {
     val context = LocalContext.current
-    val permissionsState = rememberMultiplePermissionsState(BlePermissions.required)
+    val store = remember(context) { PermissionRequestStore(context) }
+
+    // Compose state that mirrors the store, so a request result triggers a
+    // recomposition even if none of the permission statuses changed.
+    var deniedBefore by remember(permissions) {
+        mutableStateOf(store.deniedBefore(permissions))
+    }
+
+    val permissionsState = rememberMultiplePermissionsState(permissions) { results ->
+        store.record(results)
+        deniedBefore = deniedBefore - results.filterValues { it }.keys +
+            results.filterValues { !it }.keys
+    }
+
+    // Covers grants made in system Settings (Accompanist re-checks permission
+    // status on ON_RESUME). Clearing the flag here means a later revoke starts
+    // from a clean state.
+    val granted = permissionsState.permissions
+        .filter { it.status.isGranted }
+        .mapTo(mutableSetOf()) { it.permission }
+    LaunchedEffect(granted) {
+        val stale = granted intersect deniedBefore
+        if (stale.isNotEmpty()) {
+            store.clear(stale)
+            deniedBefore = deniedBefore - stale
+        }
+    }
 
     if (permissionsState.allPermissionsGranted) {
         content()
         return
     }
 
-    // True while the OS will still show its own dialog; false once the user
-    // has permanently denied (then we must route them to app settings).
-    val canRequestInApp = permissionsState.permissions.any { it.status.shouldShowRationale } ||
-        permissionsState.permissions.any { !it.isDeniedPermanently() }
+    // Permanently denied: requested and denied before, and the system no longer
+    // offers a rationale. Without the saved flag, a fresh install would look
+    // identical to a permanent denial.
+    val anyPermanentlyDenied = permissionsState.permissions.any {
+        it.permission in deniedBefore && !it.status.isGranted && !it.status.shouldShowRationale
+    }
+
+    val openSettings = {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", context.packageName, null),
+            )
+        )
+    }
 
     Column(
         modifier = modifier
@@ -57,36 +119,25 @@ fun BlePermissionGate(
     ) {
         Text(text = rationale, textAlign = TextAlign.Center)
 
-        if (canRequestInApp) {
-            Button(
-                onClick = { permissionsState.launchMultiplePermissionRequest() },
-                modifier = Modifier.padding(top = 16.dp),
-            ) { Text("Grant Bluetooth access") }
-        } else {
+        if (anyPermanentlyDenied) {
             Text(
-                text = "Bluetooth permission was denied. Enable it in system settings to continue.",
+                text = deniedMessage,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 12.dp),
             )
-            OutlinedButton(
-                onClick = {
-                    context.startActivity(
-                        Intent(
-                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.fromParts("package", context.packageName, null),
-                        )
-                    )
-                },
+            Button(
+                onClick = openSettings,
                 modifier = Modifier.padding(top = 16.dp),
             ) { Text("Open settings") }
+            OutlinedButton(
+                onClick = { permissionsState.launchMultiplePermissionRequest() },
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text(grantLabel) }
+        } else {
+            Button(
+                onClick = { permissionsState.launchMultiplePermissionRequest() },
+                modifier = Modifier.padding(top = 16.dp),
+            ) { Text(grantLabel) }
         }
     }
 }
-
-/**
- * A permission is permanently denied when it isn't granted and the system
- * says not to show a rationale — i.e. the user picked "don't ask again".
- */
-@OptIn(ExperimentalPermissionsApi::class)
-private fun PermissionState.isDeniedPermanently(): Boolean =
-    !status.isGranted && !status.shouldShowRationale
