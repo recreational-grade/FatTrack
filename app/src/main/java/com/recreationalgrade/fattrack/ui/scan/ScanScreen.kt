@@ -23,6 +23,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.recreationalgrade.fattrack.data.ble.ScannedDevice
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+
 
 @Composable
 fun ScanScreen(
@@ -31,10 +38,18 @@ fun ScanScreen(
     viewModel: ScanViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val activity = LocalContext.current.findActivity()
 
     val enableBtLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { viewModel.refreshBluetoothState() }
+
+    // Stop scanning whenever this screen leaves the foreground (Home, or
+    // navigating to Dashboard, which keeps Scan on the back stack). Skip
+    // rotation, where the ViewModel and its scan survive anyway.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (activity?.isChangingConfigurations != true) viewModel.stopScan()
+    }
 
     Column(
         modifier = modifier
@@ -59,6 +74,17 @@ fun ScanScreen(
 
         state.error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error) }
 
+        if (state.scanTimedOut) {
+            Text(
+                text = if (state.devices.isEmpty()) {
+                    "No devices found. Make sure your device is nearby and awake, then scan again."
+                } else {
+                    "Scan finished after ${ScanViewModel.SCAN_WINDOW.inWholeSeconds} s."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.devices, key = { it.address }) { device ->
                 DeviceRow(
@@ -72,6 +98,13 @@ fun ScanScreen(
         }
     }
 }
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 
 @Composable
 private fun DeviceRow(device: ScannedDevice, onClick: () -> Unit) {

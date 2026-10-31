@@ -46,7 +46,7 @@ class DefaultBleRepository @Inject constructor(
             }
 
             override fun onScanFailed(errorCode: Int) {
-                close(IllegalStateException("BLE scan failed: code=$errorCode"))
+                close(BleScanException(errorCode))
             }
         }
 
