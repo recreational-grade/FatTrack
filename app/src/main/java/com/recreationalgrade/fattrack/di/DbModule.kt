@@ -12,6 +12,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import com.recreationalgrade.fattrack.data.local.dao.DeviceDao
+import com.recreationalgrade.fattrack.data.local.dao.HeartRateDao
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -29,5 +30,5 @@ object DbModule {
     @Provides fun provideUserProfileDao(db: AppDatabase): UserProfileDao = db.userProfileDao()
     @Provides fun provideWeightEntryDao(db: AppDatabase): WeightEntryDao = db.weightEntryDao()
     @Provides fun provideDeviceDao(db: AppDatabase): DeviceDao = db.deviceDao()
-
+    @Provides fun provideHeartRateDao(db: AppDatabase): HeartRateDao = db.heartRateDao()
 }

@@ -52,6 +52,10 @@ class ColmiBleManager(context: Context) : BleManager(context) {
 
     override fun initialize() {
         val notify = commandNotify
+        // Default MTU gives 20-byte payloads; history transfers want more.
+        // The ring reports the result unsolicited via 0x2F (expect 244).
+        requestMtu(MTU).enqueue()
+
         setNotificationCallback(notify).with { _, data ->
             data.value?.let { _packets.tryEmit(it) }
         }
@@ -97,5 +101,6 @@ class ColmiBleManager(context: Context) : BleManager(context) {
 
     private companion object {
         const val TAG = "ColmiBle"
+        const val MTU = 247
     }
 }

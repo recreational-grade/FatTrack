@@ -4,6 +4,10 @@ package com.recreationalgrade.fattrack.data.ble.colmi
 object ColmiCommand {
     const val SET_TIME = 0x01
     const val BATTERY = 0x03
+    const val HEART_RATE_LOG = 0x15
+    const val HEART_RATE_LOG_SETTINGS = 0x16
+    /** Unsolicited; reports the usable payload size (20 at default MTU, 244 at 247). */
+    const val PACKET_SIZE = 0x2F
     const val REAL_TIME_START = 0x69
     const val REAL_TIME_STOP = 0x6A
 }

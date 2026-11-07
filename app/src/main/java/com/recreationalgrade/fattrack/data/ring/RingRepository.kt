@@ -39,6 +39,13 @@ import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Duration.Companion.seconds
+import com.recreationalgrade.fattrack.data.ble.colmi.HeartRateLog
+import com.recreationalgrade.fattrack.data.ble.colmi.HeartRateLogAssembler
+import com.recreationalgrade.fattrack.data.local.dao.HeartRateDao
+import com.recreationalgrade.fattrack.data.local.entity.HeartRateSample
+import java.time.LocalDate
+import java.time.ZoneOffset
+
 
 /**
  * Owns the connection to the saved Colmi ring. App-scoped, so connections
@@ -48,7 +55,9 @@ import kotlin.time.Duration.Companion.seconds
 class RingRepository @Inject constructor(
     @ApplicationContext context: Context,
     private val deviceDao: DeviceDao,
+    private val heartRateDao: HeartRateDao,
 ) {
+
     private val bluetoothAdapter: BluetoothAdapter? =
         context.getSystemService(BluetoothManager::class.java)?.adapter
 
@@ -65,6 +74,10 @@ class RingRepository @Inject constructor(
     val status: StateFlow<RingStatus> = _status.asStateFlow()
 
     val savedRing: Flow<Device?> = deviceDao.observeByFamily(DeviceFamily.COLMI_RING)
+    val latestHeartRate: Flow<HeartRateSample?> = heartRateDao.observeLatest()
+
+    fun heartRateCountSince(since: Instant): Flow<Int> = heartRateDao.observeCountSince(since)
+
 
     private var connectJob: Job? = null
 
@@ -99,6 +112,11 @@ class RingRepository @Inject constructor(
 
     init {
         manager.setConnectionObserver(observer)
+        scope.launch {
+            responses.filterIsInstance<ColmiResponse.PacketSize>().collect {
+                Log.i(TAG, "Ring packet size: ${it.bytes} bytes")
+            }
+        }
     }
 
     // --- Public API ---
@@ -135,6 +153,24 @@ class RingRepository @Inject constructor(
     fun refreshBattery() {
         _status.update { it.copy(error = null) }
         launchBle { readBattery() }
+    }
+    
+    /** Pulls history from the connected ring. */
+    fun sync() {
+        _status.update { it.copy(error = null) }
+        launchBle { syncNow() }
+    }
+
+    fun setHeartRateLogging(enabled: Boolean, intervalMinutes: Int) {
+        _status.update { it.copy(error = null) }
+        launchBle {
+            val reply = request<ColmiResponse.HeartRateLogSettingsAck>(
+                ColmiRequests.writeHeartRateLogSettings(enabled, intervalMinutes)
+            )
+            if (reply == null) Log.w(TAG, "No ack for HR settings write")
+            // Read back regardless: the ring's state is the source of truth.
+            readHeartRateLogSettings()
+        }
     }
 
     /** Disconnects and removes the saved ring. */
@@ -177,14 +213,17 @@ class RingRepository @Inject constructor(
         onConnected(address)
     }
 
-    /** Runs once per connection: clock, battery, revisions. */
+    /** Runs once per connection: clock, battery, revisions, settings, history. */
     private suspend fun onConnected(address: String) {
         if (request<ColmiResponse.TimeSet>(ColmiRequests.setTime()) == null) {
             Log.w(TAG, "No ack for set time; continuing")
         }
         readBattery()
         deviceDao.updateRevisions(address, manager.firmwareRevision, manager.hardwareRevision)
+        readHeartRateLogSettings()
+        syncNow()
     }
+
 
     private suspend fun readBattery() {
         val battery = request<ColmiResponse.Battery>(ColmiRequests.battery())
@@ -194,6 +233,80 @@ class RingRepository @Inject constructor(
             _status.update { it.copy(battery = battery) }
         }
     }
+    
+    private suspend fun readHeartRateLogSettings() {
+        val settings = request<ColmiResponse.HeartRateLogSettings>(
+            ColmiRequests.readHeartRateLogSettings()
+        )
+        if (settings == null) {
+            Log.w(TAG, "No reply to HR settings read")
+        } else {
+            _status.update { it.copy(heartRateLogSettings = settings) }
+        }
+    }
+
+    private suspend fun syncNow() {
+        if (_status.value.syncing) return
+        check(manager.isReady) { "Ring not connected" }
+        val address = checkNotNull(manager.bluetoothDevice?.address) { "Ring not connected" }
+        _status.update { it.copy(syncing = true) }
+        try {
+            if (syncHeartRate(address)) {
+                _status.update { it.copy(lastSyncAt = Instant.now()) }
+            }
+        } finally {
+            _status.update { it.copy(syncing = false) }
+        }
+    }
+
+    /**
+     * Fetches UTC days from the newest stored reading (at most [HISTORY_DAYS]
+     * back) through today. Today is always re-fetched; inserts are idempotent.
+     * Returns false if the ring stopped responding.
+     */
+    private suspend fun syncHeartRate(address: String): Boolean {
+        val now = Instant.now()
+        val today = now.atOffset(ZoneOffset.UTC).toLocalDate()
+        val oldest = today.minusDays(HISTORY_DAYS - 1)
+        val newestStored = heartRateDao.latestTimestamp(address)
+            ?.atOffset(ZoneOffset.UTC)?.toLocalDate()
+        var day = if (newestStored != null && newestStored > oldest) newestStored else oldest
+
+        while (day <= today) {
+            when (val log = requestHeartRateLog(day)) {
+                null -> {
+                    Log.w(TAG, "HR log $day: timed out")
+                    setError("Heart-rate sync timed out.")
+                    return false
+                }
+                HeartRateLog.NoData -> Log.i(TAG, "HR log $day: no data")
+                is HeartRateLog.Day -> {
+                    val samples = log.readings(now).map { (time, bpm) ->
+                        HeartRateSample(deviceAddress = address, timestamp = time, bpm = bpm)
+                    }
+                    heartRateDao.insertAll(samples)
+                    Log.i(TAG, "HR log $day: ${samples.size} readings (range ${log.rangeMinutes} min)")
+                }
+            }
+            day = day.plusDays(1)
+        }
+        return true
+    }
+
+    /** Sends one log request and assembles the multi-packet reply. Null on timeout. */
+    private suspend fun requestHeartRateLog(day: LocalDate): HeartRateLog? =
+        withTimeoutOrNull(HISTORY_TIMEOUT) {
+            coroutineScope {
+                val assembler = HeartRateLogAssembler(day)
+                val result = async(start = CoroutineStart.UNDISPATCHED) {
+                    responses.filterIsInstance<ColmiResponse.HeartRateLogPart>()
+                        .mapNotNull { assembler.add(it) }
+                        .first()
+                }
+                manager.send(ColmiRequests.heartRateLog(day))
+                result.await()
+            }
+        }
 
     /**
      * Sends [packet] and waits for the first response of type [T]. Subscribes
@@ -250,5 +363,7 @@ class RingRepository @Inject constructor(
         const val CONNECT_RETRY_DELAY_MS = 200
         const val CONNECT_TIMEOUT_MS = 15_000L
         val RESPONSE_TIMEOUT = 5.seconds
+        const val HISTORY_DAYS = 7L
+        val HISTORY_TIMEOUT = 10.seconds
     }
 }

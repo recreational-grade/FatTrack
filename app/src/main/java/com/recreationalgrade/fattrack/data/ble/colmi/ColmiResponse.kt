@@ -20,6 +20,22 @@ sealed interface ColmiResponse {
     class Unknown(val command: Int, val packet: ByteArray) : ColmiResponse {
         override fun toString() = "Unknown(command=0x%02X, packet=${packet.toHex()})".format(command)
     }
+
+    /** Usable bytes per packet on this connection. */
+    data class PacketSize(val bytes: Int) : ColmiResponse
+
+    data class HeartRateLogSettings(val enabled: Boolean, val intervalMinutes: Int) : ColmiResponse
+    
+    /** Ack for a settings write (sub-command 0x02). [status] is 1 on the R10; likely "OK". */
+    data class HeartRateLogSettingsAck(val status: Int) : ColmiResponse
+
+    /** One packet of a multi-packet HR log. Assemble with [HeartRateLogAssembler]. */
+    sealed interface HeartRateLogPart : ColmiResponse {
+        data object NoData : HeartRateLogPart
+        data class Header(val packetCount: Int, val rangeMinutes: Int) : HeartRateLogPart
+        /** [timestamp] (epoch seconds) is only present in sub-packet 1. */
+        data class Values(val subType: Int, val timestamp: Long?, val values: List<Int>) : HeartRateLogPart
+    }
 }
 
 object ColmiParser {
@@ -34,6 +50,18 @@ object ColmiParser {
             )
             ColmiCommand.SET_TIME -> ColmiResponse.TimeSet
             ColmiCommand.REAL_TIME_START -> parseRealTime(packet)
+            ColmiCommand.HEART_RATE_LOG -> parseHeartRateLog(packet)
+            ColmiCommand.HEART_RATE_LOG_SETTINGS -> when (packet.u8(1)) {
+                // Byte 1 echoes the sub-command: 1 = read reply, 2 = write ack.
+                2 -> ColmiResponse.HeartRateLogSettingsAck(status = packet.u8(2))
+                else -> ColmiResponse.HeartRateLogSettings(
+                    // 1 = on, 2 = off; anything else treated as off.
+                    enabled = packet.u8(2) == 1,
+                    intervalMinutes = packet.u8(3),
+                )
+            }
+
+            ColmiCommand.PACKET_SIZE -> ColmiResponse.PacketSize(packet.u8(1))
             else -> ColmiResponse.Unknown(command, packet.copyOf())
         }
     }
@@ -48,4 +76,23 @@ object ColmiParser {
             ColmiResponse.RealTimeReading(type, rawType, packet.u8(3))
         }
     }
+
+    private fun parseHeartRateLog(packet: ByteArray): ColmiResponse.HeartRateLogPart =
+        when (val subType = packet.u8(1)) {
+            0xFF -> ColmiResponse.HeartRateLogPart.NoData
+            0 -> ColmiResponse.HeartRateLogPart.Header(
+                packetCount = packet.u8(2),
+                rangeMinutes = packet.u8(3),
+            )
+            1 -> ColmiResponse.HeartRateLogPart.Values(
+                subType = 1,
+                timestamp = packet.intLe(2).toLong(),
+                values = (6..14).map { packet.u8(it) },
+            )
+            else -> ColmiResponse.HeartRateLogPart.Values(
+                subType = subType,
+                timestamp = null,
+                values = (2..14).map { packet.u8(it) },
+            )
+        }
 }

@@ -6,11 +6,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -18,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -25,6 +31,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.recreationalgrade.fattrack.data.local.entity.Device
 import com.recreationalgrade.fattrack.data.ring.RingConnection
 import com.recreationalgrade.fattrack.data.ring.RingStatus
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+
+private val LOG_INTERVALS = listOf(5, 10, 15, 30, 60)
+private const val DEFAULT_LOG_INTERVAL = 30
 
 @Composable
 fun DashboardScreen(
@@ -38,6 +52,7 @@ fun DashboardScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -54,7 +69,21 @@ fun DashboardScreen(
             return@Column
         }
 
+        val ready = state.status.connection == RingConnection.READY
+
         RingCard(ring = ring, status = state.status)
+
+        HeartRateCard(
+            state = state,
+            controlsEnabled = ready,
+            onLoggingChange = viewModel::setHeartRateLogging,
+        )
+
+        SyncRow(
+            status = state.status,
+            enabled = ready && !state.status.syncing,
+            onSync = viewModel::sync,
+        )
 
         state.status.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error)
@@ -86,7 +115,9 @@ fun DashboardScreen(
         AlertDialog(
             onDismissRequest = { confirmForget = false },
             title = { Text("Forget ring?") },
-            text = { Text("FatTrack will disconnect and stop syncing with this ring.") },
+            text = {
+                Text("FatTrack will disconnect and stop syncing with this ring. Data already synced is kept.")
+            },
             confirmButton = {
                 TextButton(onClick = {
                     confirmForget = false
@@ -123,6 +154,99 @@ private fun RingCard(ring: Device, status: RingStatus) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HeartRateCard(
+    state: DashboardViewModel.UiState,
+    controlsEnabled: Boolean,
+    onLoggingChange: (enabled: Boolean, intervalMinutes: Int) -> Unit,
+) {
+    val settings = state.status.heartRateLogSettings
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Heart rate", style = MaterialTheme.typography.titleMedium)
+
+            val latest = state.latestHeartRate
+            Text(
+                text = if (latest == null) {
+                    "No readings yet"
+                } else {
+                    "${latest.bpm} bpm at ${formatLocal(latest.timestamp)}"
+                },
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                "${state.heartRateReadingsToday} readings today",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = when {
+                        settings == null -> "Background logging: unknown"
+                        settings.enabled -> "Background logging: every ${settings.intervalMinutes} min"
+                        else -> "Background logging: off"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Switch(
+                    checked = settings?.enabled == true,
+                    enabled = controlsEnabled && settings != null,
+                    onCheckedChange = { enabled ->
+                        val interval = settings?.intervalMinutes
+                            ?.takeIf { it > 0 } ?: DEFAULT_LOG_INTERVAL
+                        onLoggingChange(enabled, interval)
+                    },
+                )
+            }
+
+            if (settings?.enabled == true) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LOG_INTERVALS.forEach { minutes ->
+                        FilterChip(
+                            selected = settings.intervalMinutes == minutes,
+                            enabled = controlsEnabled,
+                            onClick = { onLoggingChange(true, minutes) },
+                            label = { Text("$minutes") },
+                        )
+                    }
+                }
+                Text(
+                    "Minutes between readings. Shorter intervals use more ring battery.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncRow(status: RingStatus, enabled: Boolean, onSync: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = when {
+                status.syncing -> "Syncing…"
+                status.lastSyncAt != null -> "Last synced ${formatLocal(status.lastSyncAt)}"
+                else -> "Not synced this session"
+            },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Button(onClick = onSync, enabled = enabled) { Text("Sync now") }
+    }
+}
+
 private fun connectionLabel(connection: RingConnection): String = when (connection) {
     RingConnection.DISCONNECTED -> "Disconnected"
     RingConnection.CONNECTING -> "Connecting…"
@@ -135,4 +259,17 @@ private fun batteryLabel(status: RingStatus): String {
     val charging = if (battery.charging) ", charging" else ""
     val stale = if (status.connection != RingConnection.READY) " (last known)" else ""
     return "Battery: ${battery.level}%$charging$stale"
+}
+
+private val TIME_FORMAT = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
+private val DATE_TIME_FORMAT = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
+
+/** Local time for today, local date and time otherwise. */
+private fun formatLocal(instant: Instant): String {
+    val zoned = instant.atZone(ZoneId.systemDefault())
+    return if (zoned.toLocalDate() == LocalDate.now()) {
+        TIME_FORMAT.format(zoned)
+    } else {
+        DATE_TIME_FORMAT.format(zoned)
+    }
 }

@@ -135,11 +135,16 @@ class ColmiProtocolTest {
         )
     }
 
-    @Test fun `R10 unsolicited 0x2F packet is valid and kept as unknown`() {
-        // 0x2F + 0xF4 = 0x123 -> 0x23. Modulo 255 would give 0x24, so this
-        // also confirms the checksum rule on real hardware.
-        val response = ColmiParser.parse(hex("2F F4 00 00 00 00 00 00 00 00 00 00 00 00 00 23"))
-        assertEquals(0x2F, (response as ColmiResponse.Unknown).command)
+    @Test fun `R10 packet size reports both captures`() {
+        // 0x2F + 0xF4 = 0x123 -> 0x23; modulo 255 would give 0x24.
+        assertEquals(
+            ColmiResponse.PacketSize(244),
+            ColmiParser.parse(hex("2F F4 00 00 00 00 00 00 00 00 00 00 00 00 00 23")),
+        )
+        assertEquals(
+            ColmiResponse.PacketSize(20),
+            ColmiParser.parse(hex("2F 14 00 00 00 00 00 00 00 00 00 00 00 00 00 43")),
+        )
     }
 
 }

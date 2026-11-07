@@ -2,6 +2,7 @@ package com.recreationalgrade.fattrack.data.ble.colmi
 
 import java.time.Instant
 import java.time.ZoneOffset
+import java.time.LocalDate
 
 /** Builders for outgoing packets. */
 object ColmiRequests {
@@ -41,5 +42,22 @@ object ColmiRequests {
     internal fun bcd(value: Int): Byte {
         require(value in 0..99) { "BCD value out of range: $value" }
         return (((value / 10) shl 4) or (value % 10)).toByte()
+    }
+
+    /** Requests the 5-minute HR log for one UTC day. */
+    fun heartRateLog(dayUtc: LocalDate): ByteArray {
+        val epochSeconds = dayUtc.atStartOfDay(ZoneOffset.UTC).toEpochSecond()
+        return ColmiPacket.build(ColmiCommand.HEART_RATE_LOG, epochSeconds.toUInt32Le())
+    }
+
+    fun readHeartRateLogSettings(): ByteArray =
+        ColmiPacket.build(ColmiCommand.HEART_RATE_LOG_SETTINGS, byteArrayOf(1))
+
+    fun writeHeartRateLogSettings(enabled: Boolean, intervalMinutes: Int): ByteArray {
+        require(intervalMinutes in 1..255) { "Interval out of range: $intervalMinutes" }
+        return ColmiPacket.build(
+            ColmiCommand.HEART_RATE_LOG_SETTINGS,
+            byteArrayOf(2, if (enabled) 1 else 2, intervalMinutes.toByte()),
+        )
     }
 }

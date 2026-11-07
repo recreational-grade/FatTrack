@@ -43,3 +43,18 @@ internal fun ByteArray.u8(index: Int): Int = this[index].toInt() and 0xFF
 
 /** Space-separated hex, for logs and test failure messages. */
 fun ByteArray.toHex(): String = joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
+
+/** Little-endian signed 32-bit int at [offset]. */
+internal fun ByteArray.intLe(offset: Int): Int =
+    u8(offset) or
+        (u8(offset + 1) shl 8) or
+        (u8(offset + 2) shl 16) or
+        (u8(offset + 3) shl 24)
+
+/** Low 32 bits of this value, little-endian. */
+internal fun Long.toUInt32Le(): ByteArray = byteArrayOf(
+    (this and 0xFF).toByte(),
+    ((this shr 8) and 0xFF).toByte(),
+    ((this shr 16) and 0xFF).toByte(),
+    ((this shr 24) and 0xFF).toByte(),
+)
