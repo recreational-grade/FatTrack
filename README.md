@@ -70,7 +70,7 @@ manage user profiles app-side rather than pushing them to the scale.
 | DI | Hilt | |
 | Charts | Vico or MPAndroidChart | Trends/history views |
 | Build/CI | GitHub Actions | Build + sign + attach APK on tag |
-| Min SDK | 26+ (verify current Health Connect reqs) | |
+| Min SDK | 29+ (verify current Health Connect reqs) | |
 
 ---
 
