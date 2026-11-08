@@ -66,7 +66,14 @@ sealed interface ColmiResponse {
         val metric: HalfHourMetric
 
         data class NoData(override val metric: HalfHourMetric) : HalfHourLogPart
-        data class Header(override val metric: HalfHourMetric) : HalfHourLogPart
+        
+        /** [packetCount] includes this header; [intervalMinutes] is the slot length (30). */
+        data class Header(
+            override val metric: HalfHourMetric,
+            val packetCount: Int,
+            val intervalMinutes: Int,
+        ) : HalfHourLogPart
+
         data class Values(
             override val metric: HalfHourMetric,
             val packetIndex: Int,
@@ -168,9 +175,14 @@ object ColmiParser {
     private fun parseHalfHourLog(metric: HalfHourMetric, packet: ByteArray): ColmiResponse.HalfHourLogPart =
         when (val index = packet.u8(1)) {
             0xFF -> ColmiResponse.HalfHourLogPart.NoData(metric)
-            0 -> ColmiResponse.HalfHourLogPart.Header(metric)
+            0 -> ColmiResponse.HalfHourLogPart.Header(
+                metric = metric,
+                packetCount = packet.u8(2),
+                intervalMinutes = packet.u8(3),
+            )
             else -> {
-                // Packet 1's byte 2 is not a value (meaning unknown).
+                // Packet 1's byte 2 is not a value: it's 0 on the R10, and treating
+                // it as slot 0 would put the newest reading in the future.
                 val first = if (index == 1) 3 else 2
                 ColmiResponse.HalfHourLogPart.Values(metric, index, (first..14).map { packet.u8(it) })
             }

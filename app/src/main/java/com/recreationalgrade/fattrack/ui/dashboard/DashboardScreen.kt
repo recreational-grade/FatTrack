@@ -310,7 +310,7 @@ private fun HalfHourCard(
                 onToggle = { onToggle(HalfHourMetric.HRV, it) },
             )
             Text(
-                "Measured every 30 minutes while on.",
+                "While on, stress is measured every 30 minutes and HRV hourly.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

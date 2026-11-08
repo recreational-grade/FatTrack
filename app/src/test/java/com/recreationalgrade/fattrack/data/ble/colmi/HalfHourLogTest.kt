@@ -57,7 +57,10 @@ class HalfHourLogTest {
     }
 
     @Test fun `parses header`() {
-        assertEquals(HalfHourLogPart.Header(HalfHourMetric.STRESS), stress(0, 5))
+        assertEquals(
+            HalfHourLogPart.Header(HalfHourMetric.STRESS, packetCount = 5, intervalMinutes = 30),
+            stress(0, 5, 0x1E),
+        )
     }
 
     @Test fun `first packet values start at byte 3`() {
@@ -113,5 +116,57 @@ class HalfHourLogTest {
     @Test fun `readings skip empty and future slots`() {
         val log = HalfHourLog.Day(day, List(48) { if (it == 0) 10 else if (it == 2) 30 else 0 })
         assertEquals(listOf(at(0) to 10), log.readings(at(0, 45)))
+    }
+    
+    // --- Real R10 captures (2026-11-08, synced at 18:29:02 UTC) ---
+
+    private val captureTime = Instant.parse("2026-11-08T18:29:02Z")
+
+    private val stressCapture = listOf(
+        "37 00 05 1E 00 00 00 00 00 00 00 00 00 00 00 5A",
+        "37 01 00 28 2A 26 30 25 27 2A 28 2B 24 2D 1E 18",
+        "37 02 29 20 28 27 1F 28 2B 2E 20 29 20 31 1E 29",
+        "37 03 28 3F 27 20 23 2C 25 3F 27 2F 28 2D 00 46",
+        "37 04 00 00 00 00 00 00 00 00 00 00 00 00 00 3B",
+    )
+
+    private val hrvCapture = listOf(
+        "39 00 05 1E 00 00 00 00 00 00 00 00 00 00 00 5C",
+        "39 01 00 2E 00 2C 00 26 00 2C 00 2B 00 2C 00 3D",
+        "39 02 22 00 2A 00 20 00 2D 00 21 00 2A 00 20 3F",
+        "39 03 00 2D 00 30 00 2C 00 31 00 2E 00 31 00 55",
+        "39 04 00 00 00 00 00 00 00 00 00 00 00 00 00 3D",
+    )
+
+    private fun assembleCapture(packets: List<String>): HalfHourLog.Day {
+        val assembler = HalfHourLogAssembler(day)
+        var result: HalfHourLog? = null
+        packets.forEachIndexed { i, s ->
+            result = assembler.add(ColmiParser.parse(hex(s)) as HalfHourLogPart)
+            if (i < packets.lastIndex) assertNull("Completed early at $i", result)
+        }
+        return result as HalfHourLog.Day
+    }
+
+    @Test fun `R10 header reports 5 packets of 30-minute slots`() {
+        assertEquals(
+            HalfHourLogPart.Header(HalfHourMetric.HRV, packetCount = 5, intervalMinutes = 30),
+            ColmiParser.parse(hex(hrvCapture[0])),
+        )
+    }
+
+    @Test fun `R10 stress fills every 30-minute slot`() {
+        val readings = assembleCapture(stressCapture).readings(captureTime)
+        assertEquals((0..36).map { day.plusSeconds(it * 1800L) }, readings.map { it.first })
+        assertEquals(at(0) to 40, readings.first())
+        // Dashboard showed "Stress 45 at 1:00 PM" (UTC−5).
+        assertEquals(at(18) to 45, readings.last())
+    }
+
+    @Test fun `R10 HRV fills hourly slots only`() {
+        val readings = assembleCapture(hrvCapture).readings(captureTime)
+        assertEquals((0..18).map { at(it) }, readings.map { it.first })
+        assertEquals(at(0) to 46, readings.first())
+        assertEquals(at(18) to 49, readings.last())
     }
 }
