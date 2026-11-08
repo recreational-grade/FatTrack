@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import java.time.Instant
 
-/** Activity in one 15-minute UTC slot. Same keying and no-FK rule as [HeartRateSample]. */
+/** Activity in one one-hour UTC slot. Same keying and no-FK rule as [HeartRateSample]. */
 @Entity(
     tableName = "steps",
     primaryKeys = ["deviceAddress", "slotStart"],

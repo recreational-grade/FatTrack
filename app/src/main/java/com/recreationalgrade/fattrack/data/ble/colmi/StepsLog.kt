@@ -4,7 +4,7 @@ import com.recreationalgrade.fattrack.data.ble.colmi.ColmiResponse.StepsLogPart
 import java.time.Instant
 import java.time.ZoneOffset
 
-/** Activity in one 15-minute UTC slot. */
+/** Activity in one one-hour UTC slot. */
 data class StepSlot(
     val start: Instant,
     val steps: Int,
