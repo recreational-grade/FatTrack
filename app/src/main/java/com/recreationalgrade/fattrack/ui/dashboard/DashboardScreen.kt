@@ -36,6 +36,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import com.recreationalgrade.fattrack.data.local.dao.StepTotals
+import java.text.NumberFormat
+
 
 private val LOG_INTERVALS = listOf(5, 10, 15, 30, 60)
 private const val DEFAULT_LOG_INTERVAL = 30
@@ -78,6 +81,8 @@ fun DashboardScreen(
             controlsEnabled = ready,
             onLoggingChange = viewModel::setHeartRateLogging,
         )
+        
+        StepsCard(totals = state.stepsToday)
 
         SyncRow(
             status = state.status,
@@ -224,6 +229,27 @@ private fun HeartRateCard(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun StepsCard(totals: StepTotals) {
+    val numbers = NumberFormat.getIntegerInstance()
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Steps today", style = MaterialTheme.typography.titleMedium)
+            Text(numbers.format(totals.steps), style = MaterialTheme.typography.headlineMedium)
+            Text(
+                "%.1f km · ~%s kcal active".format(
+                    totals.distanceMeters / 1000.0,
+                    numbers.format(totals.calories / 1000),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

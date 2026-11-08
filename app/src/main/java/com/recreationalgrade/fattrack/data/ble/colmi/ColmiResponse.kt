@@ -1,4 +1,5 @@
 package com.recreationalgrade.fattrack.data.ble.colmi
+import java.time.LocalDate
 
 /** Decoded packets from the ring's notify characteristic (6E400003…). */
 sealed interface ColmiResponse {
@@ -36,6 +37,24 @@ sealed interface ColmiResponse {
         /** [timestamp] (epoch seconds) is only present in sub-packet 1. */
         data class Values(val subType: Int, val timestamp: Long?, val values: List<Int>) : HeartRateLogPart
     }
+    
+    /** One packet of a multi-packet steps log. Assemble with [StepsLogAssembler]. */
+    sealed interface StepsLogPart : ColmiResponse {
+        data object NoData : StepsLogPart
+        /** If [newCalorieProtocol], calorie values are in units of 10. */
+        data class Header(val newCalorieProtocol: Boolean) : StepsLogPart
+        data class Slot(
+            val date: LocalDate,
+            /** 15-minute slot within the UTC day, 0..95. */
+            val slotIndex: Int,
+            val packetIndex: Int,
+            val packetCount: Int,
+            val caloriesRaw: Int,
+            val steps: Int,
+            val distanceMeters: Int,
+        ) : StepsLogPart
+    }
+
 }
 
 object ColmiParser {
@@ -62,6 +81,7 @@ object ColmiParser {
             }
 
             ColmiCommand.PACKET_SIZE -> ColmiResponse.PacketSize(packet.u8(1))
+            ColmiCommand.STEPS_LOG -> parseStepsLog(packet)
             else -> ColmiResponse.Unknown(command, packet.copyOf())
         }
     }
@@ -95,4 +115,31 @@ object ColmiParser {
                 values = (2..14).map { packet.u8(it) },
             )
         }
+        
+    private fun parseStepsLog(packet: ByteArray): ColmiResponse = when (packet.u8(1)) {
+        0xFF -> ColmiResponse.StepsLogPart.NoData
+        0xF0 -> ColmiResponse.StepsLogPart.Header(newCalorieProtocol = packet.u8(3) == 1)
+        else -> {
+            val date = runCatching {
+                LocalDate.of(
+                    2000 + fromBcd(packet.u8(1)),
+                    fromBcd(packet.u8(2)),
+                    fromBcd(packet.u8(3)),
+                )
+            }.getOrNull()
+            if (date == null) {
+                ColmiResponse.Unknown(ColmiCommand.STEPS_LOG, packet.copyOf())
+            } else {
+                ColmiResponse.StepsLogPart.Slot(
+                    date = date,
+                    slotIndex = packet.u8(4),
+                    packetIndex = packet.u8(5),
+                    packetCount = packet.u8(6),
+                    caloriesRaw = packet.u16Le(7),
+                    steps = packet.u16Le(9),
+                    distanceMeters = packet.u16Le(11),
+                )
+            }
+        }
+    }
 }

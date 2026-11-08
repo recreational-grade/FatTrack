@@ -10,6 +10,8 @@ object ColmiCommand {
     const val PACKET_SIZE = 0x2F
     const val REAL_TIME_START = 0x69
     const val REAL_TIME_STOP = 0x6A
+    const val STEPS_LOG = 0x43
+
 }
 
 /** Live measurement types. Only HR and SpO2 give plausible values on these rings. */

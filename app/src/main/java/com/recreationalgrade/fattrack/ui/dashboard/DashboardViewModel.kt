@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
+import com.recreationalgrade.fattrack.data.local.dao.StepTotals
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
@@ -27,6 +28,7 @@ class DashboardViewModel @Inject constructor(
         val status: RingStatus = RingStatus(),
         val latestHeartRate: HeartRateSample? = null,
         val heartRateReadingsToday: Int = 0,
+        val stepsToday: StepTotals = StepTotals(),
     )
 
     // Local midnight at screen creation; refreshed properly in step 6.
@@ -37,15 +39,18 @@ class DashboardViewModel @Inject constructor(
         ringRepository.status,
         ringRepository.latestHeartRate,
         ringRepository.heartRateCountSince(todayStart),
-    ) { ring, status, latest, countToday ->
+        ringRepository.stepTotalsSince(todayStart),
+    ) { ring, status, latest, countToday, stepsToday ->
         UiState(
             loaded = true,
             ring = ring,
             status = status,
             latestHeartRate = latest,
             heartRateReadingsToday = countToday,
+            stepsToday = stepsToday,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState())
+
 
     fun connect() = ringRepository.connect()
     fun disconnect() = ringRepository.disconnect()

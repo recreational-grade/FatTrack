@@ -58,3 +58,9 @@ internal fun Long.toUInt32Le(): ByteArray = byteArrayOf(
     ((this shr 16) and 0xFF).toByte(),
     ((this shr 24) and 0xFF).toByte(),
 )
+
+/** Little-endian unsigned 16-bit int at [offset]. */
+internal fun ByteArray.u16Le(offset: Int): Int = u8(offset) or (u8(offset + 1) shl 8)
+
+/** Decodes one BCD byte: 0x26 -> 26. */
+internal fun fromBcd(value: Int): Int = ((value shr 4) and 0x0F) * 10 + (value and 0x0F)

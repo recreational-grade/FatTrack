@@ -45,6 +45,13 @@ import com.recreationalgrade.fattrack.data.local.dao.HeartRateDao
 import com.recreationalgrade.fattrack.data.local.entity.HeartRateSample
 import java.time.LocalDate
 import java.time.ZoneOffset
+import com.recreationalgrade.fattrack.data.ble.colmi.StepsLog
+import com.recreationalgrade.fattrack.data.ble.colmi.StepsLogAssembler
+import com.recreationalgrade.fattrack.data.local.dao.StepDao
+import com.recreationalgrade.fattrack.data.local.dao.StepTotals
+import com.recreationalgrade.fattrack.data.local.entity.StepSample
+import java.time.temporal.ChronoUnit
+
 
 
 /**
@@ -56,6 +63,7 @@ class RingRepository @Inject constructor(
     @ApplicationContext context: Context,
     private val deviceDao: DeviceDao,
     private val heartRateDao: HeartRateDao,
+    private val stepDao: StepDao,
 ) {
 
     private val bluetoothAdapter: BluetoothAdapter? =
@@ -77,7 +85,7 @@ class RingRepository @Inject constructor(
     val latestHeartRate: Flow<HeartRateSample?> = heartRateDao.observeLatest()
 
     fun heartRateCountSince(since: Instant): Flow<Int> = heartRateDao.observeCountSince(since)
-
+    fun stepTotalsSince(since: Instant): Flow<StepTotals> = stepDao.observeTotalsSince(since)
 
     private var connectJob: Job? = null
 
@@ -251,9 +259,9 @@ class RingRepository @Inject constructor(
         val address = checkNotNull(manager.bluetoothDevice?.address) { "Ring not connected" }
         _status.update { it.copy(syncing = true) }
         try {
-            if (syncHeartRate(address)) {
-                _status.update { it.copy(lastSyncAt = Instant.now()) }
-            }
+            // Short-circuits: if HR times out the ring isn't responding; skip steps.
+            val ok = syncHeartRate(address) && syncSteps(address)
+            if (ok) _status.update { it.copy(lastSyncAt = Instant.now()) }
         } finally {
             _status.update { it.copy(syncing = false) }
         }
@@ -304,6 +312,61 @@ class RingRepository @Inject constructor(
                         .first()
                 }
                 manager.send(ColmiRequests.heartRateLog(day))
+                result.await()
+            }
+        }
+
+    /**
+     * Fetches day offsets from the newest stored slot's day (at most
+     * [HISTORY_DAYS] back) down to 0 = today (UTC). Returns false on timeout.
+     */
+    private suspend fun syncSteps(address: String): Boolean {
+        val today = Instant.now().atOffset(ZoneOffset.UTC).toLocalDate()
+        val newest = stepDao.latestSlot(address)?.atOffset(ZoneOffset.UTC)?.toLocalDate()
+        val maxOffset = if (newest == null) {
+            HISTORY_DAYS - 1
+        } else {
+            ChronoUnit.DAYS.between(newest, today).coerceIn(0, HISTORY_DAYS - 1)
+        }
+
+        for (offset in maxOffset downTo 0L) {
+            val day = today.minusDays(offset)
+            when (val log = requestStepsLog(offset.toInt())) {
+                null -> {
+                    Log.w(TAG, "Steps $day: timed out")
+                    setError("Step sync timed out.")
+                    return false
+                }
+                StepsLog.NoData -> Log.i(TAG, "Steps $day: no data")
+                is StepsLog.Slots -> {
+                    stepDao.insertAll(
+                        log.slots.map {
+                            StepSample(
+                                deviceAddress = address,
+                                slotStart = it.start,
+                                steps = it.steps,
+                                distanceMeters = it.distanceMeters,
+                                calories = it.calories,
+                            )
+                        }
+                    )
+                    Log.i(TAG, "Steps $day: ${log.slots.sumOf { it.steps }} steps in ${log.slots.size} slots")
+                }
+            }
+        }
+        return true
+    }
+
+    private suspend fun requestStepsLog(dayOffset: Int): StepsLog? =
+        withTimeoutOrNull(HISTORY_TIMEOUT) {
+            coroutineScope {
+                val assembler = StepsLogAssembler()
+                val result = async(start = CoroutineStart.UNDISPATCHED) {
+                    responses.filterIsInstance<ColmiResponse.StepsLogPart>()
+                        .mapNotNull { assembler.add(it) }
+                        .first()
+                }
+                manager.send(ColmiRequests.stepsLog(dayOffset))
                 result.await()
             }
         }

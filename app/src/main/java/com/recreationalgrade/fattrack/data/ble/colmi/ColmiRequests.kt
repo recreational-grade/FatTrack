@@ -60,4 +60,17 @@ object ColmiRequests {
             byteArrayOf(2, if (enabled) 1 else 2, intervalMinutes.toByte()),
         )
     }
+    
+    /**
+     * Requests 15-minute activity slots for one day, as an offset back from the
+     * ring's "today" (UTC). The trailing bytes are constants from the reference;
+     * their meaning is unknown.
+     */
+    fun stepsLog(dayOffset: Int): ByteArray {
+        require(dayOffset in 0..255) { "Day offset out of range: $dayOffset" }
+        return ColmiPacket.build(
+            ColmiCommand.STEPS_LOG,
+            byteArrayOf(dayOffset.toByte(), 0x0F, 0x00, 0x5F, 0x01),
+        )
+    }
 }
