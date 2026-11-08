@@ -153,14 +153,14 @@ sync enabled types; track `lastHealthConnectSync` to avoid duplicates.
 
 ## 8. Milestones / Phases
 
-### Phase 0 — Foundation (1–2 weeks)
+### Phase 0 — Foundation (1–2 weeks) COMPLETE
 - Project scaffold, Hilt, Compose navigation
 - Room DB + entities
 - BLE permission flow (Android 12+ `BLUETOOTH_SCAN`/`CONNECT`)
 - Device scan + pairing UI skeleton
 - GitHub repo set up (GPL license, README stub)
 
-### Phase 1 — Colmi R10 Core (3–5 weeks)
+### Phase 1 — Colmi R10 Core (3–5 weeks) 
 - Connect to R10, implement 16-byte command protocol
 - Read: steps, HR, SpO2, HRV, temperature, sleep (all confirmed supported on R10)
 - Historical data sync (batch read)
