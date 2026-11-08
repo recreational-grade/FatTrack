@@ -11,7 +11,8 @@ data class StepSlot(
     val distanceMeters: Int,
     /**
      * Small calories (1/1000 kcal), after the ×10 for the new protocol.
-     * Unit inferred from ~50 cal/step in reference captures; unverified.
+     * Unit inferred from ~50 cal/step in reference captures; 
+     * confirmed on R10, 2026-11-08 (~62 cal/step).
      */
     val calories: Int,
 )
@@ -53,6 +54,7 @@ class StepsLogAssembler {
     }
 
     private companion object {
+        // Slot index is in 15-min units; ring fills hourly (multiples of 4)
         const val SLOT_SECONDS = 15L * 60
     }
 }

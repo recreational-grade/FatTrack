@@ -123,4 +123,87 @@ class StepsLogTest {
         assertEquals(100, log.slots.single().calories)
         assertEquals(Instant.parse("2026-11-07T06:00:00Z"), log.slots.single().start)
     }
+    
+    // --- Real R10 capture (2026-11-08, ring clock in UTC) ---
+    // The ring fills one slot per hour: slot indices are in 15-minute units
+    // but always multiples of 4.
+
+    private val r10Header = "43 F0 09 01 00 00 00 00 00 00 00 00 00 00 00 3D"
+    private val r10Slots = listOf(
+        "43 26 11 08 00 00 09 7B 02 60 00 4B 00 00 00 B3",
+        "43 26 11 08 08 01 09 05 02 5D 00 3E 00 00 00 36",
+        "43 26 11 08 28 02 09 41 00 0C 00 07 00 00 00 09",
+        "43 26 11 08 2C 03 09 9B 03 97 00 6E 00 00 00 5D",
+        "43 26 11 08 30 04 09 D8 02 78 00 57 00 00 00 68",
+        "43 26 11 08 34 05 09 0B 11 D4 02 07 02 00 00 BF",
+        "43 26 11 08 38 06 09 49 0C 14 02 76 01 00 00 AB",
+        "43 26 11 08 3C 07 09 63 16 92 03 AB 02 00 00 89",
+        "43 26 11 08 40 08 09 0F 13 F8 02 46 02 00 00 37",
+    )
+
+    private fun assemble(header: String, packets: List<String>): List<StepSlot> {
+        val assembler = StepsLogAssembler()
+        assertNull(assembler.add(part(hex(header))))
+        var result: StepsLog? = null
+        packets.forEachIndexed { i, s ->
+            result = assembler.add(part(hex(s)))
+            if (i < packets.lastIndex) assertNull("Completed early at $i", result)
+        }
+        return (result as StepsLog.Slots).slots
+    }
+
+    @Test fun `parses R10 header with new calorie protocol`() {
+        assertEquals(
+            ColmiResponse.StepsLogPart.Header(newCalorieProtocol = true),
+            ColmiParser.parse(hex(r10Header)),
+        )
+    }
+
+    @Test fun `parses R10 slot packet`() {
+        assertEquals(
+            ColmiResponse.StepsLogPart.Slot(
+                date = LocalDate.of(2026, 11, 8),
+                slotIndex = 0x34,
+                packetIndex = 5,
+                packetCount = 9,
+                caloriesRaw = 4363,
+                steps = 724,
+                distanceMeters = 519,
+            ),
+            ColmiParser.parse(hex(r10Slots[5])),
+        )
+    }
+
+    @Test fun `assembles R10 day into hourly UTC slots`() {
+        val log = assemble(r10Header, r10Slots)
+        val midnight = Instant.parse("2026-11-08T00:00:00Z")
+        assertEquals(
+            listOf(0, 2, 10, 11, 12, 13, 14, 15, 16).map { midnight.plusSeconds(it * 3600L) },
+            log.map { it.start },
+        )
+        assertEquals(
+            StepSlot(
+                start = Instant.parse("2026-11-08T13:00:00Z"),
+                steps = 724,
+                distanceMeters = 519,
+                calories = 43_630,
+            ),
+            log[5],
+        )
+    }
+
+    @Test fun `R10 day totals`() {
+        val log = assemble(r10Header, r10Slots)
+        assertEquals(3402, log.sumOf { it.steps })
+        assertEquals(209_860, log.sumOf { it.calories })
+        assertEquals(2499, log.sumOf { it.distanceMeters })
+    }
+
+    @Test fun `R10 calories confirm small calorie unit`() {
+        // Checked on the device: kcal ≈ 0.06 × steps.
+        // Without the ×10 for the new protocol this would be ~6 cal/step.
+        val log = assemble(r10Header, r10Slots)
+        val perStep = log.sumOf { it.calories }.toDouble() / log.sumOf { it.steps }
+        assertEquals(61.7, perStep, 0.1)
+    }
 }
