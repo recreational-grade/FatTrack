@@ -51,7 +51,14 @@ import com.recreationalgrade.fattrack.data.local.dao.StepDao
 import com.recreationalgrade.fattrack.data.local.dao.StepTotals
 import com.recreationalgrade.fattrack.data.local.entity.StepSample
 import java.time.temporal.ChronoUnit
-
+import com.recreationalgrade.fattrack.data.ble.colmi.HalfHourLog
+import com.recreationalgrade.fattrack.data.ble.colmi.HalfHourLogAssembler
+import com.recreationalgrade.fattrack.data.ble.colmi.HalfHourMetric
+import com.recreationalgrade.fattrack.data.local.dao.HrvDao
+import com.recreationalgrade.fattrack.data.local.dao.StressDao
+import com.recreationalgrade.fattrack.data.local.entity.HrvSample
+import com.recreationalgrade.fattrack.data.local.entity.StressSample
+import kotlinx.coroutines.flow.filter
 
 
 /**
@@ -64,6 +71,8 @@ class RingRepository @Inject constructor(
     private val deviceDao: DeviceDao,
     private val heartRateDao: HeartRateDao,
     private val stepDao: StepDao,
+    private val stressDao: StressDao,
+    private val hrvDao: HrvDao,
 ) {
 
     private val bluetoothAdapter: BluetoothAdapter? =
@@ -83,6 +92,8 @@ class RingRepository @Inject constructor(
 
     val savedRing: Flow<Device?> = deviceDao.observeByFamily(DeviceFamily.COLMI_RING)
     val latestHeartRate: Flow<HeartRateSample?> = heartRateDao.observeLatest()
+    val latestStress: Flow<StressSample?> = stressDao.observeLatest()
+    val latestHrv: Flow<HrvSample?> = hrvDao.observeLatest()
 
     fun heartRateCountSince(since: Instant): Flow<Int> = heartRateDao.observeCountSince(since)
     fun stepTotalsSince(since: Instant): Flow<StepTotals> = stepDao.observeTotalsSince(since)
@@ -181,6 +192,17 @@ class RingRepository @Inject constructor(
         }
     }
 
+    fun setAutoMeasure(metric: HalfHourMetric, enabled: Boolean) {
+        _status.update { it.copy(error = null) }
+        launchBle {
+            val ack = request<ColmiResponse.AutoMeasureSettingAck>(
+                ColmiRequests.writeAutoMeasure(metric, enabled),
+            ) { it.metric == metric }
+            if (ack == null) Log.w(TAG, "No ack for ${metric.label} settings write")
+            readAutoMeasure(metric)
+        }
+    }
+
     /** Disconnects and removes the saved ring. */
     fun forgetRing() {
         connectJob?.cancel()
@@ -229,6 +251,7 @@ class RingRepository @Inject constructor(
         readBattery()
         deviceDao.updateRevisions(address, manager.firmwareRevision, manager.hardwareRevision)
         readHeartRateLogSettings()
+        HalfHourMetric.entries.forEach { readAutoMeasure(it) }
         syncNow()
     }
 
@@ -260,7 +283,8 @@ class RingRepository @Inject constructor(
         _status.update { it.copy(syncing = true) }
         try {
             // Short-circuits: if HR times out the ring isn't responding; skip steps.
-            val ok = syncHeartRate(address) && syncSteps(address)
+            val ok = syncHeartRate(address) && syncSteps(address) &&
+                syncStress(address) && syncHrv(address)
             if (ok) _status.update { it.copy(lastSyncAt = Instant.now()) }
         } finally {
             _status.update { it.copy(syncing = false) }
@@ -373,18 +397,22 @@ class RingRepository @Inject constructor(
 
     /**
      * Sends [packet] and waits for the first response of type [T]. Subscribes
-     * before writing so a fast reply can't be missed. Null on timeout.
+     * before writing so a fast reply can't be missed. Null on timeout. Takes 
+     * an optional filter, so a reply for the other metric can't be mistaken 
+     * for the one requested.
      */
-    private suspend inline fun <reified T : ColmiResponse> request(packet: ByteArray): T? =
-        withTimeoutOrNull(RESPONSE_TIMEOUT) {
-            coroutineScope {
-                val reply = async(start = CoroutineStart.UNDISPATCHED) {
-                    responses.filterIsInstance<T>().first()
-                }
-                manager.send(packet)
-                reply.await()
+    private suspend inline fun <reified T : ColmiResponse> request(
+        packet: ByteArray,
+        crossinline accept: (T) -> Boolean = { true },
+    ): T? = withTimeoutOrNull(RESPONSE_TIMEOUT) {
+        coroutineScope {
+            val reply = async(start = CoroutineStart.UNDISPATCHED) {
+                responses.filterIsInstance<T>().first { accept(it) }
             }
+            manager.send(packet)
+            reply.await()
         }
+    }
 
     /** Also cancels an in-progress connection attempt. */
     private suspend fun disconnectQuietly() {
@@ -428,5 +456,87 @@ class RingRepository @Inject constructor(
         val RESPONSE_TIMEOUT = 5.seconds
         const val HISTORY_DAYS = 7L
         val HISTORY_TIMEOUT = 10.seconds
+    }
+    private suspend fun readAutoMeasure(metric: HalfHourMetric) {
+        val setting = request<ColmiResponse.AutoMeasureSetting>(
+            ColmiRequests.readAutoMeasure(metric),
+        ) { it.metric == metric }
+        if (setting == null) {
+            Log.w(TAG, "No reply to ${metric.label} settings read")
+        } else {
+            _status.update { it.copy(autoMeasure = it.autoMeasure + (metric to setting.enabled)) }
+        }
+    }
+
+    /** The stress command takes no day argument, so only today (UTC) is fetched. */
+    private suspend fun syncStress(address: String): Boolean =
+        syncHalfHourLog(HalfHourMetric.STRESS, maxOffset = 0) { readings ->
+            stressDao.insertAll(
+                readings.map { (time, value) -> StressSample(deviceAddress = address, timestamp = time, level = value) },
+            )
+        }
+
+    private suspend fun syncHrv(address: String): Boolean {
+        val today = Instant.now().atOffset(ZoneOffset.UTC).toLocalDate()
+        val newest = hrvDao.latestTimestamp(address)?.atOffset(ZoneOffset.UTC)?.toLocalDate()
+        val maxDays = (HISTORY_DAYS - 1).toLong()
+        val maxOffset = if (newest == null) {
+            maxDays
+        } else {
+            ChronoUnit.DAYS.between(newest, today).coerceIn(0L, maxDays)
+        }
+        return syncHalfHourLog(HalfHourMetric.HRV, maxOffset) { readings ->
+            hrvDao.insertAll(
+                readings.map { (time, value) -> HrvSample(deviceAddress = address, timestamp = time, valueMs = value) },
+            )
+        }
+    }
+
+    private suspend fun syncHalfHourLog(
+        metric: HalfHourMetric,
+        maxOffset: Long,
+        store: suspend (List<Pair<Instant, Int>>) -> Unit,
+    ): Boolean {
+        val now = Instant.now()
+        val today = now.atOffset(ZoneOffset.UTC).toLocalDate()
+        for (offset in maxOffset downTo 0L) {
+            val day = today.minusDays(offset)
+            val packet = when (metric) {
+                HalfHourMetric.STRESS -> ColmiRequests.stressLog()
+                HalfHourMetric.HRV -> ColmiRequests.hrvLog(offset.toInt())
+            }
+            when (val log = requestHalfHourLog(metric, day, packet)) {
+                null -> {
+                    Log.w(TAG, "${metric.label} $day: timed out")
+                    setError("${metric.label} sync timed out.")
+                    return false
+                }
+                HalfHourLog.NoData -> Log.i(TAG, "${metric.label} $day: no data")
+                is HalfHourLog.Day -> {
+                    val readings = log.readings(now)
+                    store(readings)
+                    Log.i(TAG, "${metric.label} $day: ${readings.size} readings")
+                }
+            }
+        }
+        return true
+    }
+
+    private suspend fun requestHalfHourLog(
+        metric: HalfHourMetric,
+        day: LocalDate,
+        packet: ByteArray,
+    ): HalfHourLog? = withTimeoutOrNull(HISTORY_TIMEOUT) {
+        coroutineScope {
+            val assembler = HalfHourLogAssembler(day.atStartOfDay(ZoneOffset.UTC).toInstant())
+            val result = async(start = CoroutineStart.UNDISPATCHED) {
+                responses.filterIsInstance<ColmiResponse.HalfHourLogPart>()
+                    .filter { it.metric == metric }
+                    .mapNotNull { assembler.add(it) }
+                    .first()
+            }
+            manager.send(packet)
+            result.await()
+        }
     }
 }

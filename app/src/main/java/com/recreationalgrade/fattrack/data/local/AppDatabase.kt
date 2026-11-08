@@ -14,6 +14,11 @@ import com.recreationalgrade.fattrack.data.local.dao.HeartRateDao
 import com.recreationalgrade.fattrack.data.local.entity.HeartRateSample
 import com.recreationalgrade.fattrack.data.local.dao.StepDao
 import com.recreationalgrade.fattrack.data.local.entity.StepSample
+import com.recreationalgrade.fattrack.data.local.entity.StressSample
+import com.recreationalgrade.fattrack.data.local.entity.HrvSample
+import com.recreationalgrade.fattrack.data.local.dao.HrvDao
+import com.recreationalgrade.fattrack.data.local.dao.StressDao
+
 
 @Database(
     entities = [
@@ -22,13 +27,16 @@ import com.recreationalgrade.fattrack.data.local.entity.StepSample
         Device::class,
         HeartRateSample::class,
         StepSample::class,
+        StressSample::class,
+        HrvSample::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
         AutoMigration(from = 3, to = 4),
+        AutoMigration(from = 4, to = 5),
     ],
 )
 
@@ -40,4 +48,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun deviceDao(): DeviceDao
     abstract fun heartRateDao(): HeartRateDao
     abstract fun stepDao(): StepDao
+    abstract fun stressDao(): StressDao
+    abstract fun hrvDao(): HrvDao
 }

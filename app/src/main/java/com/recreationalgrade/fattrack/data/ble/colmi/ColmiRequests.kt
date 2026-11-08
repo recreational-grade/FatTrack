@@ -73,4 +73,20 @@ object ColmiRequests {
             byteArrayOf(dayOffset.toByte(), 0x0F, 0x00, 0x5F, 0x01),
         )
     }
+    
+    /** Today's stress log. The command takes no day argument. */
+    fun stressLog(): ByteArray = ColmiPacket.build(ColmiCommand.STRESS_LOG)
+
+    /** HRV log for one day, as an offset back from the ring's "today" (UTC). */
+    fun hrvLog(dayOffset: Int): ByteArray {
+        require(dayOffset in 0..255) { "dayOffset out of range: $dayOffset" }
+        return ColmiPacket.build(ColmiCommand.HRV_LOG, dayOffset.toLong().toUInt32Le())
+    }
+
+    fun readAutoMeasure(metric: HalfHourMetric): ByteArray =
+        ColmiPacket.build(metric.settingsCommand, byteArrayOf(1))
+
+    /** Unlike HR (1 = on, 2 = off), off is written as 0 here. */
+    fun writeAutoMeasure(metric: HalfHourMetric, enabled: Boolean): ByteArray =
+        ColmiPacket.build(metric.settingsCommand, byteArrayOf(2, if (enabled) 1 else 0))
 }

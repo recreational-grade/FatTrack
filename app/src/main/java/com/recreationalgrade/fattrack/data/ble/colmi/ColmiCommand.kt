@@ -11,7 +11,10 @@ object ColmiCommand {
     const val REAL_TIME_START = 0x69
     const val REAL_TIME_STOP = 0x6A
     const val STEPS_LOG = 0x43
-
+    const val STRESS_SETTINGS = 0x36
+    const val STRESS_LOG = 0x37
+    const val HRV_SETTINGS = 0x38
+    const val HRV_LOG = 0x39
 }
 
 /** Live measurement types. Only HR and SpO2 give plausible values on these rings. */

@@ -54,7 +54,25 @@ sealed interface ColmiResponse {
             val distanceMeters: Int,
         ) : StepsLogPart
     }
+    
+    /** Stress/HRV auto-measure state (0x36/0x38, sub-command 1). */
+    data class AutoMeasureSetting(val metric: HalfHourMetric, val enabled: Boolean) : ColmiResponse
 
+    /** Ack for a stress/HRV settings write (sub-command 2). */
+    data class AutoMeasureSettingAck(val metric: HalfHourMetric, val status: Int) : ColmiResponse
+
+    /** One packet of a stress (0x37) or HRV (0x39) log reply. */
+    sealed interface HalfHourLogPart : ColmiResponse {
+        val metric: HalfHourMetric
+
+        data class NoData(override val metric: HalfHourMetric) : HalfHourLogPart
+        data class Header(override val metric: HalfHourMetric) : HalfHourLogPart
+        data class Values(
+            override val metric: HalfHourMetric,
+            val packetIndex: Int,
+            val values: List<Int>,
+        ) : HalfHourLogPart
+    }
 }
 
 object ColmiParser {
@@ -82,6 +100,10 @@ object ColmiParser {
 
             ColmiCommand.PACKET_SIZE -> ColmiResponse.PacketSize(packet.u8(1))
             ColmiCommand.STEPS_LOG -> parseStepsLog(packet)
+            ColmiCommand.STRESS_LOG -> parseHalfHourLog(HalfHourMetric.STRESS, packet)
+            ColmiCommand.HRV_LOG -> parseHalfHourLog(HalfHourMetric.HRV, packet)
+            ColmiCommand.STRESS_SETTINGS -> parseAutoMeasure(HalfHourMetric.STRESS, packet)
+            ColmiCommand.HRV_SETTINGS -> parseAutoMeasure(HalfHourMetric.HRV, packet)
             else -> ColmiResponse.Unknown(command, packet.copyOf())
         }
     }
@@ -142,4 +164,21 @@ object ColmiParser {
             }
         }
     }
+    
+    private fun parseHalfHourLog(metric: HalfHourMetric, packet: ByteArray): ColmiResponse.HalfHourLogPart =
+        when (val index = packet.u8(1)) {
+            0xFF -> ColmiResponse.HalfHourLogPart.NoData(metric)
+            0 -> ColmiResponse.HalfHourLogPart.Header(metric)
+            else -> {
+                // Packet 1's byte 2 is not a value (meaning unknown).
+                val first = if (index == 1) 3 else 2
+                ColmiResponse.HalfHourLogPart.Values(metric, index, (first..14).map { packet.u8(it) })
+            }
+        }
+
+    private fun parseAutoMeasure(metric: HalfHourMetric, packet: ByteArray): ColmiResponse =
+        when (packet.u8(1)) {
+            2 -> ColmiResponse.AutoMeasureSettingAck(metric, packet.u8(2))
+            else -> ColmiResponse.AutoMeasureSetting(metric, enabled = packet.u8(2) == 1)
+        }
 }

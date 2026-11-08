@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.recreationalgrade.fattrack.data.local.entity.Device
 import com.recreationalgrade.fattrack.data.ring.RingConnection
 import com.recreationalgrade.fattrack.data.ring.RingStatus
+import com.recreationalgrade.fattrack.data.ble.colmi.HalfHourMetric
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -38,6 +39,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import com.recreationalgrade.fattrack.data.local.dao.StepTotals
 import java.text.NumberFormat
+
 
 
 private val LOG_INTERVALS = listOf(5, 10, 15, 30, 60)
@@ -83,6 +85,12 @@ fun DashboardScreen(
         )
         
         StepsCard(totals = state.stepsToday)
+        
+        HalfHourCard(
+            state = state,
+            controlsEnabled = ready,
+            onToggle = viewModel::setAutoMeasure,
+        )
 
         SyncRow(
             status = state.status,
@@ -270,6 +278,64 @@ private fun SyncRow(status: RingStatus, enabled: Boolean, onSync: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
         )
         Button(onClick = onSync, enabled = enabled) { Text("Sync now") }
+    }
+}
+
+@Composable
+private fun HalfHourCard(
+    state: DashboardViewModel.UiState,
+    controlsEnabled: Boolean,
+    onToggle: (HalfHourMetric, Boolean) -> Unit,
+) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Stress & HRV", style = MaterialTheme.typography.titleMedium)
+            AutoMeasureRow(
+                label = state.latestStress
+                    ?.let { "Stress ${it.level} at ${formatLocal(it.timestamp)}" }
+                    ?: "Stress: no readings yet",
+                enabled = state.status.autoMeasure[HalfHourMetric.STRESS],
+                controlsEnabled = controlsEnabled,
+                onToggle = { onToggle(HalfHourMetric.STRESS, it) },
+            )
+            AutoMeasureRow(
+                label = state.latestHrv
+                    ?.let { "HRV ${it.valueMs} ms at ${formatLocal(it.timestamp)}" }
+                    ?: "HRV: no readings yet",
+                enabled = state.status.autoMeasure[HalfHourMetric.HRV],
+                controlsEnabled = controlsEnabled,
+                onToggle = { onToggle(HalfHourMetric.HRV, it) },
+            )
+            Text(
+                "Measured every 30 minutes while on.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun AutoMeasureRow(
+    label: String,
+    enabled: Boolean?,
+    controlsEnabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Switch(
+            checked = enabled == true,
+            enabled = controlsEnabled && enabled != null,
+            onCheckedChange = onToggle,
+        )
     }
 }
 
