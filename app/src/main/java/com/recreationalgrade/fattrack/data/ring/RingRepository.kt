@@ -59,6 +59,8 @@ import com.recreationalgrade.fattrack.data.local.dao.StressDao
 import com.recreationalgrade.fattrack.data.local.entity.HrvSample
 import com.recreationalgrade.fattrack.data.local.entity.StressSample
 import kotlinx.coroutines.flow.filter
+import com.recreationalgrade.fattrack.data.ble.colmi.ColmiPacket
+import com.recreationalgrade.fattrack.data.ble.colmi.toHex
 
 
 /**
@@ -200,6 +202,16 @@ class RingRepository @Inject constructor(
             ) { it.metric == metric }
             if (ack == null) Log.w(TAG, "No ack for ${metric.label} settings write")
             readAutoMeasure(metric)
+        }
+    }
+    
+    /** Debug: sends one raw command packet. Replies show in the ColmiBle log. */
+    fun sendRaw(command: Int, payload: ByteArray) {
+        _status.update { it.copy(error = null) }
+        launchBle {
+            val packet = ColmiPacket.build(command, payload)
+            Log.i(TAG, "Raw send: ${packet.toHex()}")
+            manager.send(packet)
         }
     }
 

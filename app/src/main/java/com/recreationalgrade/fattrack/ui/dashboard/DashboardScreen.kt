@@ -39,7 +39,9 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import com.recreationalgrade.fattrack.data.local.dao.StepTotals
 import java.text.NumberFormat
-
+import android.content.pm.ApplicationInfo
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.platform.LocalContext
 
 
 private val LOG_INTERVALS = listOf(5, 10, 15, 30, 60)
@@ -97,6 +99,12 @@ fun DashboardScreen(
             enabled = ready && !state.status.syncing,
             onSync = viewModel::sync,
         )
+        
+        val debuggable = (LocalContext.current.applicationInfo.flags and
+            ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (debuggable && ready) {
+            DebugCard(onSend = viewModel::sendRaw)
+        }
 
         state.status.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error)
@@ -336,6 +344,39 @@ private fun AutoMeasureRow(
             enabled = controlsEnabled && enabled != null,
             onCheckedChange = onToggle,
         )
+    }
+}
+
+@Composable
+private fun DebugCard(onSend: (String) -> Boolean) {
+    var input by remember { mutableStateOf("") }
+    var invalid by remember { mutableStateOf(false) }
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Debug: raw command", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = input,
+                onValueChange = {
+                    input = it
+                    invalid = false
+                },
+                label = { Text("Hex bytes, e.g. 37 01") },
+                isError = invalid,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Command first, then up to 14 payload bytes. Padding and checksum " +
+                    "are added. Replies appear in logcat (ColmiBle).",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Button(onClick = { invalid = !onSend(input) }, enabled = input.isNotBlank()) {
+                Text("Send")
+            }
+        }
     }
 }
 

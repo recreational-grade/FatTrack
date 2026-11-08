@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
+import com.recreationalgrade.fattrack.data.ble.colmi.ColmiPacket
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
@@ -77,4 +78,18 @@ class DashboardViewModel @Inject constructor(
 
     fun setAutoMeasure(metric: HalfHourMetric, enabled: Boolean) =
         ringRepository.setAutoMeasure(metric, enabled)
+        
+    /**
+     * Debug: parses hex like "37 01" or "3701" (command byte first, up to 14
+     * payload bytes) and sends it. Padding and checksum are added. False if
+     * the input isn't valid hex.
+     */
+    fun sendRaw(hex: String): Boolean {
+        val digits = hex.filterNot { it.isWhitespace() }
+        if (digits.isEmpty() || digits.length % 2 != 0) return false
+        val bytes = digits.chunked(2).map { it.toIntOrNull(16) ?: return false }
+        if (bytes.size > 1 + ColmiPacket.MAX_PAYLOAD) return false
+        ringRepository.sendRaw(bytes[0], ByteArray(bytes.size - 1) { bytes[it + 1].toByte() })
+        return true
+    }
 }
