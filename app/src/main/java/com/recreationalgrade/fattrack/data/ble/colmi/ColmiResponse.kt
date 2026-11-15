@@ -181,8 +181,7 @@ object ColmiParser {
                 intervalMinutes = packet.u8(3),
             )
             else -> {
-                // Packet 1's byte 2 is not a value: it's 0 on the R10, and treating
-                // it as slot 0 would put the newest reading in the future.
+                // Packet 1's byte 2 echoes the requested day offset; values start at byte 3.
                 val first = if (index == 1) 3 else 2
                 ColmiResponse.HalfHourLogPart.Values(metric, index, (first..14).map { packet.u8(it) })
             }

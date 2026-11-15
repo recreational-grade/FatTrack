@@ -22,13 +22,18 @@ class HalfHourLogTest {
     private fun at(hour: Int, minute: Int = 0) = day.plusSeconds(hour * 3600L + minute * 60L)
 
     // --- Requests ---
-
-    @Test fun `stress log request has no payload`() {
-        assertArrayEquals(hex("37 00 00 00 00 00 00 00 00 00 00 00 00 00 00 37"), ColmiRequests.stressLog())
+    @Test fun `stress log request carries day offset`() {
+        assertArrayEquals(
+            hex("37 01 00 00 00 00 00 00 00 00 00 00 00 00 00 38"),
+            ColmiRequests.halfHourLog(HalfHourMetric.STRESS, 1),
+        )
     }
 
     @Test fun `hrv log request carries day offset`() {
-        assertArrayEquals(hex("39 02 00 00 00 00 00 00 00 00 00 00 00 00 00 3B"), ColmiRequests.hrvLog(2))
+        assertArrayEquals(
+            hex("39 02 00 00 00 00 00 00 00 00 00 00 00 00 00 3B"),
+            ColmiRequests.halfHourLog(HalfHourMetric.HRV, 2),
+        )
     }
 
     @Test fun `auto-measure read and write requests`() {
@@ -138,8 +143,8 @@ class HalfHourLogTest {
         "39 04 00 00 00 00 00 00 00 00 00 00 00 00 00 3D",
     )
 
-    private fun assembleCapture(packets: List<String>): HalfHourLog.Day {
-        val assembler = HalfHourLogAssembler(day)
+    private fun assembleCapture(packets: List<String>, dayStart: Instant = day): HalfHourLog.Day {
+        val assembler = HalfHourLogAssembler(dayStart)
         var result: HalfHourLog? = null
         packets.forEachIndexed { i, s ->
             result = assembler.add(ColmiParser.parse(hex(s)) as HalfHourLogPart)
@@ -168,5 +173,42 @@ class HalfHourLogTest {
         assertEquals((0..18).map { at(it) }, readings.map { it.first })
         assertEquals(at(0) to 46, readings.first())
         assertEquals(at(18) to 49, readings.last())
+    }
+    private val stressOffset1Capture = listOf(
+        "37 00 05 1E 00 00 00 00 00 00 00 00 00 00 00 5A",
+        "37 01 01 1F 25 40 20 2A 2A 2B 20 2E 28 25 28 1F",
+        "37 02 20 1F 2F 2E 2C 29 21 2F 1E 31 22 26 30 41",
+        "37 03 29 31 2A 31 22 31 2A 2A 2F 27 28 2F 22 65",
+        "37 04 24 30 2A 29 2F 27 2F 1E 31 25 00 00 00 DB",
+    )
+
+    private val stressOffset2Capture = listOf(
+        "37 00 05 1E 00 00 00 00 00 00 00 00 00 00 00 5A",
+        "37 01 02 23 24 1F 41 2A 35 31 00 00 00 27 2C C4",
+        "37 02 22 2E 3E 2C 31 2D 22 3E 2D 22 21 40 2D 8E",
+        "37 03 2F 24 30 25 2D 25 23 1E 2F 24 29 2D 27 45",
+        "37 04 1F 1F 20 20 26 3F 21 23 25 3C 00 00 00 C3",
+    )
+
+    @Test fun `packet 1 byte 2 echoes day offset and is not a value`() {
+        val part = ColmiParser.parse(hex(stressOffset1Capture[1])) as HalfHourLogPart.Values
+        assertEquals(12, part.values.size)
+        assertEquals(0x1F, part.values.first())
+    }
+
+    @Test fun `R10 stress for a past day fills all 48 slots`() {
+        val yesterday = day.minusSeconds(86_400)
+        val readings = assembleCapture(stressOffset1Capture, yesterday).readings(captureTime)
+        assertEquals((0..47).map { yesterday.plusSeconds(it * 1800L) }, readings.map { it.first })
+        assertEquals(yesterday to 0x1F, readings.first())
+        assertEquals(yesterday.plusSeconds(47 * 1800L) to 0x25, readings.last())
+    }
+
+    @Test fun `R10 stress gaps are skipped`() {
+        val twoDaysAgo = day.minusSeconds(2 * 86_400)
+        val readings = assembleCapture(stressOffset2Capture, twoDaysAgo).readings(captureTime)
+        assertEquals(45, readings.size)
+        val missing = listOf(7, 8, 9).map { twoDaysAgo.plusSeconds(it * 1800L) }
+        assertEquals(emptyList<Instant>(), readings.map { it.first }.filter { it in missing })
     }
 }

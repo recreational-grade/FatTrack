@@ -480,28 +480,27 @@ class RingRepository @Inject constructor(
         }
     }
 
-    /** The stress command takes no day argument, so only today (UTC) is fetched. */
     private suspend fun syncStress(address: String): Boolean =
-        syncHalfHourLog(HalfHourMetric.STRESS, maxOffset = 0) { readings ->
+        syncHalfHourLog(HalfHourMetric.STRESS, maxOffsetSince(stressDao.latestTimestamp(address))) { readings ->
             stressDao.insertAll(
                 readings.map { (time, value) -> StressSample(deviceAddress = address, timestamp = time, level = value) },
             )
         }
 
-    private suspend fun syncHrv(address: String): Boolean {
-        val today = Instant.now().atOffset(ZoneOffset.UTC).toLocalDate()
-        val newest = hrvDao.latestTimestamp(address)?.atOffset(ZoneOffset.UTC)?.toLocalDate()
-        val maxDays = (HISTORY_DAYS - 1).toLong()
-        val maxOffset = if (newest == null) {
-            maxDays
-        } else {
-            ChronoUnit.DAYS.between(newest, today).coerceIn(0L, maxDays)
-        }
-        return syncHalfHourLog(HalfHourMetric.HRV, maxOffset) { readings ->
+    private suspend fun syncHrv(address: String): Boolean =
+        syncHalfHourLog(HalfHourMetric.HRV, maxOffsetSince(hrvDao.latestTimestamp(address))) { readings ->
             hrvDao.insertAll(
                 readings.map { (time, value) -> HrvSample(deviceAddress = address, timestamp = time, valueMs = value) },
             )
         }
+
+    /** Days back to fetch: from the newest stored reading's UTC day, or the full window if none. */
+    private fun maxOffsetSince(newest: Instant?): Long {
+        val maxDays = HISTORY_DAYS - 1
+        if (newest == null) return maxDays
+        val today = Instant.now().atOffset(ZoneOffset.UTC).toLocalDate()
+        val newestDay = newest.atOffset(ZoneOffset.UTC).toLocalDate()
+        return ChronoUnit.DAYS.between(newestDay, today).coerceIn(0L, maxDays)
     }
 
     private suspend fun syncHalfHourLog(
@@ -513,10 +512,7 @@ class RingRepository @Inject constructor(
         val today = now.atOffset(ZoneOffset.UTC).toLocalDate()
         for (offset in maxOffset downTo 0L) {
             val day = today.minusDays(offset)
-            val packet = when (metric) {
-                HalfHourMetric.STRESS -> ColmiRequests.stressLog()
-                HalfHourMetric.HRV -> ColmiRequests.hrvLog(offset.toInt())
-            }
+            val packet = ColmiRequests.halfHourLog(metric, offset.toInt())
             when (val log = requestHalfHourLog(metric, day, packet)) {
                 null -> {
                     Log.w(TAG, "${metric.label} $day: timed out")
